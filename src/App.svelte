@@ -13,6 +13,7 @@
     readTextFile,
     writeTextFile,
     copyToClipboard,
+    readClipboard,
     getRecentFiles,
     pushRecentFile,
     clearRecentFiles,
@@ -21,6 +22,7 @@
     onCloseRequested,
     closeWindow,
     setWindowTitle,
+    checkForUpdate,
     baseName,
   } from "./lib/tauri.js";
 
@@ -73,6 +75,8 @@
   let treeExpandDepth = $state(2); // depth auto-expanded on (re)mount
   let showShortcuts = $state(false);
   let closePrompt = $state(false); // unsaved-changes confirmation on close
+  let pendingUpdate = $state(null); // downloaded update, ready to install on exit
+  let installing = false; // guard so the installer only fires once
   let invalidSavePrompt = $state(null); // { errors, resolve } when saving broken JSON
   let gotoPrompt = $state(false); // Go-to-line dialog
   let gotoValue = $state("");
@@ -88,16 +92,17 @@
   let replaceOpen = $state(false); // replace row visible (Ctrl+R)
   let replaceQuery = $state("");
   let replaceFocusNonce = $state(0);
-  let textCount = $state(0); // literal-match count (replace mode)
-  let textIndex = $state(-1); // current literal match (replace mode)
 
   // ---- Context menu + subtree commands --------------------------------------
   let ctxMenu = $state(null); // { x, y, path, segments, value, keyLabel }
+  let editorMenu = $state(null); // { x, y } — custom editor right-click menu
   let subtreeCmd = $state(null); // { path, open, n } broadcast to the tree
 
   // ---- View preferences (persisted) -----------------------------------------
   let wrap = $state(loadBool("wrap", true));
   let fontSize = $state(loadNum("fontSize", 13, 9, 24));
+  let treeFontSize = $state(loadNum("treeFontSize", 12.5, 9, 24));
+  let activePane = $state("editor"); // which pane zoom targets (hover-tracked)
 
   // On-disk snapshot of the current file, to detect external changes.
   let diskSnapshot = null;
@@ -106,13 +111,12 @@
   const title = $derived(filePath ? baseName(filePath) : "untitled.json");
   const byteSize = $derived(new TextEncoder().encode(text).length);
 
-  // Replace mode drives the editor with a literal-text search instead of the
-  // structural tree search, so hits map 1:1 to replaceable text.
+  // Replace acts on the current structural matches, so Find behaves identically
+  // whether or not the replace row is showing.
   const replaceMode = $derived(searchOpen && replaceOpen);
 
-  // Search object handed to the tree (matches + reveal/filter info). The tree
-  // stays passive in replace mode — replace is an editor-text operation.
-  const searchActive = $derived(searchOpen && !replaceMode && searchQuery.trim() !== "");
+  // Search object handed to the tree (matches + reveal/filter info).
+  const searchActive = $derived(searchOpen && searchQuery.trim() !== "");
   const treeSearch = $derived({
     active: searchActive,
     filter: searchOpts.filter,
@@ -194,6 +198,9 @@
         { label: "Minify", shortcut: "Ctrl+Shift+M", action: minify },
         { label: "Sort Keys (A→Z)", action: sortKeys },
         { sep: true },
+        { label: "Convert to JSONL", action: toJsonl, disabled: docMode === "jsonl" },
+        { label: "Convert to JSON array", action: toJsonArray, disabled: docMode !== "jsonl" },
+        { sep: true },
         { label: "Copy as Minified", action: copyAsMinified },
         { label: "Copy as Formatted", action: copyAsFormatted },
       ],
@@ -203,6 +210,22 @@
       items: [
         { label: "Expand All", action: expandAll },
         { label: "Collapse All", action: collapseAll },
+        {
+          label: "Expand to level",
+          submenu: [
+            { label: "Level 1", action: () => showToLevel(1) },
+            { label: "Level 2", action: () => showToLevel(2) },
+            { label: "Level 3", action: () => showToLevel(3) },
+          ],
+        },
+        {
+          label: "Collapse to level",
+          submenu: [
+            { label: "Level 1", action: () => showToLevel(1) },
+            { label: "Level 2", action: () => showToLevel(2) },
+            { label: "Level 3", action: () => showToLevel(3) },
+          ],
+        },
         { sep: true },
         { label: `Word Wrap${wrap ? "  ✓" : ""}`, action: toggleWrap },
         { sep: true },
@@ -281,37 +304,9 @@
     const key = searchOpts.key;
     const val = searchOpts.value;
     const cs = searchOpts.caseSensitive;
-    const rmode = replaceMode;
     const data = parsed;
-    const doc = text; // literal search re-runs when the document changes (e.g. after a replace)
     const active = searchOpen && q.trim() !== "";
-
-    if (!active) {
-      searchResult = { matches: [], matchPaths: new Set(), ancestorPaths: new Set() };
-      searchIndex = -1;
-      textCount = 0;
-      textIndex = -1;
-      editorApi?.clearSearch?.();
-      editorApi?.clearTextSearch?.();
-      return;
-    }
-
-    if (rmode) {
-      // Replace mode: literal editor-text search.
-      editorApi?.clearSearch?.();
-      searchResult = { matches: [], matchPaths: new Set(), ancestorPaths: new Set() };
-      searchIndex = -1;
-      const r = editorApi?.findText?.(q, { caseSensitive: cs }) ?? { count: 0, index: -1 };
-      textCount = r.count;
-      textIndex = r.index;
-      return;
-    }
-
-    // Find mode: structural key/value search over the parsed tree.
-    editorApi?.clearTextSearch?.();
-    textCount = 0;
-    textIndex = -1;
-    if (data === undefined) {
+    if (!active || data === undefined) {
       searchResult = { matches: [], matchPaths: new Set(), ancestorPaths: new Set() };
       searchIndex = -1;
       editorApi?.clearSearch?.();
@@ -335,12 +330,27 @@
       unlistenDrop = await onFileDrop((p) => openPath(p));
       unlistenOpen = await onOpenWithFile((p) => openPath(p));
       // Veto the window close when there are unsaved edits; prompt instead.
+      // Otherwise close via finishClose(), which installs a pending update first.
       unlistenClose = await onCloseRequested(() => {
-        if (dirty && !closePrompt) {
-          closePrompt = true;
+        if (dirty) {
+          if (!closePrompt) closePrompt = true;
           return false;
         }
-        return !dirty;
+        if (pendingUpdate && !installing) {
+          finishClose(); // installs the update, then exits
+          return false;
+        }
+        return true;
+      });
+      // Check GitHub for a newer release and download it in the background.
+      checkForUpdate().then((u) => {
+        if (!u) return;
+        u.whenReady().then((ok) => {
+          if (ok) {
+            pendingUpdate = u;
+            flash(`Update ${u.version} ready — installs when you close`);
+          }
+        });
       });
       if (!isTauri && text === "") {
         // Browser preview: show sample content so the UI is explorable.
@@ -421,15 +431,39 @@
   async function closeSave() {
     closePrompt = false;
     await save();
-    if (!dirty) await closeWindow();
+    if (!dirty) await finishClose();
   }
   async function closeDiscard() {
     closePrompt = false;
     lastSaved = text; // mark clean so the veto lets us through
-    await closeWindow();
+    await finishClose();
   }
   function closeCancel() {
     closePrompt = false;
+  }
+
+  // Final step of closing: if an update finished downloading, run its installer
+  // (which quits the app) instead of a plain close; otherwise just close.
+  async function finishClose() {
+    if (pendingUpdate && !installing) {
+      installing = true;
+      const ran = await pendingUpdate.install({ relaunch: false });
+      if (ran) return; // app is exiting via the installer
+      installing = false;
+    }
+    await closeWindow();
+  }
+
+  // Install the ready update now and relaunch into the new version.
+  async function updateNow() {
+    if (!pendingUpdate || installing) return;
+    installing = true;
+    flash(`Installing update ${pendingUpdate.version}…`);
+    const ran = await pendingUpdate.install({ relaunch: true });
+    if (!ran) {
+      installing = false;
+      flash("Update not ready yet");
+    }
   }
 
   // ---- Helpers --------------------------------------------------------------
@@ -445,7 +479,7 @@
   // Detect JSON vs JSONL from the extension, falling back to content sniffing.
   function detectMode(path, content) {
     const p = (path || "").toLowerCase();
-    if (p.endsWith(".jsonl") || p.endsWith(".ndjson")) return "jsonl";
+    if (p.endsWith(".jsonl") || p.endsWith(".ndjson") || p.endsWith(".ldjson")) return "jsonl";
     if (p.endsWith(".json")) return "json";
     const lines = content.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     if (lines.length > 1) {
@@ -645,6 +679,100 @@
     resetTree(1);
     flash("Collapsed all");
   }
+  // Show exactly `n` levels of nesting, in both the tree and the editor folds.
+  function showToLevel(n) {
+    resetTree(n);
+    editorApi?.foldToLevel?.(n);
+    flash(`Showing ${n} level${n === 1 ? "" : "s"}`);
+  }
+
+  // ---- JSON ⇄ JSONL conversion ----------------------------------------------
+  function toJsonl() {
+    try {
+      const v = JSON.parse(text);
+      if (!Array.isArray(v)) {
+        flash("Top level must be an array to convert to JSONL");
+        return;
+      }
+      docMode = "jsonl";
+      setText(v.map((x) => JSON.stringify(x)).join("\n"), { resetHistory: true });
+      resetTree(2);
+      flash("Converted to JSONL");
+    } catch {
+      flash("Can't convert — fix the error first");
+    }
+  }
+  function toJsonArray() {
+    try {
+      const arr = [];
+      for (const l of text.split(/\r?\n/)) {
+        if (l.trim() === "") continue;
+        arr.push(JSON.parse(l));
+      }
+      docMode = "json";
+      setText(JSON.stringify(arr, null, 2), { resetHistory: true });
+      resetTree(2);
+      flash("Converted to JSON array");
+    } catch {
+      flash("Can't convert — fix the error first");
+    }
+  }
+
+  // ---- Inline tree value editing (JSON mode only) ---------------------------
+  let editCmd = $state(null); // { path, n } — tell a tree node to start editing
+  function onTreeEdit(segments, value, draft) {
+    let encoded;
+    if (typeof value === "string") {
+      encoded = JSON.stringify(draft); // literal string content
+    } else {
+      try {
+        encoded = JSON.stringify(JSON.parse(draft.trim())); // number / boolean / null
+      } catch {
+        flash("Invalid value — leaving it unchanged");
+        return;
+      }
+    }
+    const ok = editorApi?.setValueAtPath?.(segments, encoded);
+    if (!ok) flash("Couldn't locate that value in the text");
+  }
+
+  // ---- Copy a uniform array of objects as CSV -------------------------------
+  function toCsv(arr) {
+    const rows = arr.filter((x) => x && typeof x === "object" && !Array.isArray(x));
+    const keys = [];
+    for (const o of rows) for (const k of Object.keys(o)) if (!keys.includes(k)) keys.push(k);
+    const esc = (s) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+    const cell = (v) =>
+      v === undefined || v === null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+    const lines = [keys.map(esc).join(",")];
+    for (const o of rows) lines.push(keys.map((k) => esc(cell(o[k]))).join(","));
+    return lines.join("\n");
+  }
+
+  // ---- Escape / unescape a string value in place ----------------------------
+  function parseEmbedded(segments, value) {
+    try {
+      const inner = JSON.parse(value); // value is a JSON-bearing string
+      const ok = editorApi?.setValueAtPath?.(segments, JSON.stringify(inner, null, 2));
+      flash(ok ? "Parsed embedded JSON" : "Couldn't locate that value");
+    } catch {
+      flash("Not valid JSON inside the string");
+    }
+  }
+  function stringifyValue(segments, value) {
+    // Encode the value's JSON text as a single JSON string (the inverse).
+    const ok = editorApi?.setValueAtPath?.(segments, JSON.stringify(JSON.stringify(value)));
+    flash(ok ? "Escaped as JSON string" : "Couldn't locate that value");
+  }
+
+  // ---- Save just one subtree to a new file ----------------------------------
+  async function saveSubtreeAs(value, keyLabel) {
+    const suggested = `${keyLabel != null ? String(keyLabel).replace(/[^\w.-]+/g, "_") : "subtree"}.json`;
+    const path = await pickSavePath(suggested);
+    if (!path) return;
+    const ok = await writeTextFile(path, JSON.stringify(value, null, 2));
+    flash(ok ? `Saved  ${baseName(path)}` : "Save failed");
+  }
 
   // ---- Seek: jump the editor cursor to a tree node's value -----------------
   function onSeekNode(path, segments, value) {
@@ -693,17 +821,8 @@
     searchOpen = false;
     replaceOpen = false;
     editorApi?.clearSearch?.();
-    editorApi?.clearTextSearch?.();
   }
   function searchStep(delta) {
-    if (replaceMode) {
-      const r = editorApi?.stepText?.(delta);
-      if (r) {
-        textCount = r.count;
-        textIndex = r.index;
-      }
-      return;
-    }
     const n = searchResult.matches.length;
     if (!n) return;
     const idx = searchIndex < 0 ? 0 : (searchIndex + delta + n) % n;
@@ -723,8 +842,12 @@
   }
   function replaceOne() {
     if (!replaceMode) return;
-    // The document change re-runs the search effect, refreshing count + current.
-    editorApi?.replaceCurrent?.(searchQuery, replaceQuery, { caseSensitive: searchOpts.caseSensitive });
+    // Replace inside the current match; the search effect re-runs on the edit,
+    // so if the match no longer qualifies the current index lands on the next.
+    const n = editorApi?.replaceCurrent?.(searchQuery, replaceQuery, searchIndex, {
+      caseSensitive: searchOpts.caseSensitive,
+    }) ?? 0;
+    if (!n) flash("Nothing to replace here");
   }
   function replaceAllNow() {
     if (!replaceMode) return;
@@ -744,10 +867,18 @@
   }
 
   // ---- View: zoom + word wrap ----------------------------------------------
+  // Zoom targets whichever pane the pointer is over (editor by default), so the
+  // same Ctrl +/-/0 can size the editor or the tree.
   function zoom(dir) {
-    const next = dir === 0 ? 13 : Math.min(24, Math.max(9, fontSize + dir));
-    fontSize = next;
-    localStorage.setItem("fontSize", String(next));
+    if (activePane === "tree") {
+      const next = dir === 0 ? 12.5 : Math.min(24, Math.max(9, treeFontSize + dir));
+      treeFontSize = next;
+      localStorage.setItem("treeFontSize", String(next));
+    } else {
+      const next = dir === 0 ? 13 : Math.min(24, Math.max(9, fontSize + dir));
+      fontSize = next;
+      localStorage.setItem("fontSize", String(next));
+    }
   }
   function toggleWrap() {
     wrap = !wrap;
@@ -802,11 +933,50 @@
   // ---- Tree right-click context menu ----------------------------------------
   function onTreeContext(info) {
     // Clamp roughly; ContextMenu fine-tunes once it knows its size.
+    closeEditorMenu();
     ctxMenu = info;
   }
   function closeCtx() {
     ctxMenu = null;
   }
+
+  // ---- Editor right-click context menu (replaces the useless native one) ----
+  function onEditorContext(e) {
+    e.preventDefault();
+    closeCtx();
+    editorMenu = { x: e.clientX, y: e.clientY };
+  }
+  function closeEditorMenu() {
+    editorMenu = null;
+  }
+  async function editorCopy(cut) {
+    const t = editorApi?.getSelectionText?.() ?? "";
+    if (!t) return;
+    await copyToClipboard(t);
+    if (cut) editorApi?.replaceSelection?.("");
+  }
+  async function editorPaste() {
+    const t = await readClipboard();
+    if (t == null) {
+      flash("Clipboard unavailable");
+      return;
+    }
+    editorApi?.replaceSelection?.(t);
+  }
+  const editorMenuItems = $derived.by(() => {
+    if (!editorMenu) return [];
+    const hasSel = (editorApi?.getSelectionText?.() ?? "") !== "";
+    return [
+      { label: "Cut", disabled: !hasSel, action: () => editorCopy(true) },
+      { label: "Copy", disabled: !hasSel, action: () => editorCopy(false) },
+      { label: "Paste", action: editorPaste },
+      { label: "Select All", action: () => editorApi?.selectAll?.() },
+      { sep: true },
+      { label: "Format / Prettify", action: format },
+      { label: "Minify", action: minify },
+    ];
+  });
+
   function rawValueString(v) {
     if (typeof v === "string") return v;
     if (v === null) return "null";
@@ -821,7 +991,24 @@
     const { value, keyLabel, segments, path } = info;
     const container = value !== null && typeof value === "object";
     const hasKey = keyLabel !== null && keyLabel !== undefined;
+    const isLeaf = !container;
+    const editable = docMode === "json" && segments.length > 0;
+    const arrayOfObjects =
+      Array.isArray(value) && value.some((x) => x && typeof x === "object" && !Array.isArray(x));
+    const stringIsJson =
+      typeof value === "string" &&
+      (() => {
+        try {
+          JSON.parse(value);
+          return true;
+        } catch {
+          return false;
+        }
+      })();
     return [
+      ...(editable && isLeaf
+        ? [{ label: "Edit value", action: () => (editCmd = { path, n: (editCmd?.n || 0) + 1 }) }, { sep: true }]
+        : []),
       { label: "Copy value", action: () => copyText(rawValueString(value), "Copied value") },
       { label: "Copy value as JSON", action: () => copyText(JSON.stringify(value, null, 2), "Copied JSON") },
       { label: "Copy key", disabled: !hasKey, action: () => copyText(String(keyLabel), "Copied key") },
@@ -830,11 +1017,21 @@
         disabled: !hasKey,
         action: () => copyText(`${JSON.stringify(String(keyLabel))}: ${JSON.stringify(value)}`, "Copied entry"),
       },
+      ...(arrayOfObjects
+        ? [{ label: "Copy as CSV", action: () => copyText(toCsv(value), "Copied CSV") }]
+        : []),
       { sep: true },
       { label: "Copy path", action: () => copyText(path, "Copied path") },
       { label: "Copy path (brackets)", action: () => copyText(pathToBracket(segments), "Copied path") },
       { sep: true },
       { label: "Jump to value", action: () => onSeekNode(path, segments, value) },
+      { label: "Save subtree as…", action: () => saveSubtreeAs(value, keyLabel) },
+      ...(editable && stringIsJson
+        ? [{ label: "Parse embedded JSON", action: () => parseEmbedded(segments, value) }]
+        : []),
+      ...(editable
+        ? [{ label: "Escape as JSON string", action: () => stringifyValue(segments, value) }]
+        : []),
       ...(container
         ? [
             { sep: true },
@@ -944,6 +1141,10 @@
         closeCtx();
         return;
       }
+      if (editorMenu) {
+        closeEditorMenu();
+        return;
+      }
       if (showShortcuts) {
         showShortcuts = false;
         return;
@@ -1029,12 +1230,16 @@
     ondrop={onDrop}
     role="application"
   >
-    <section class="pane editor-pane" style="flex-basis: {splitRatio * 100}%">
+    <section
+      class="pane editor-pane"
+      style="flex-basis: {splitRatio * 100}%"
+      onmouseenter={() => (activePane = "editor")}
+    >
       <div class="pane-head">
         <span class="pane-label">Editor</span>
         <span class="pane-meta">{formatBytes(byteSize)}</span>
       </div>
-      <div class="pane-body">
+      <div class="pane-body" oncontextmenu={onEditorContext} role="presentation">
         <Editor
           value={text}
           mode={docMode}
@@ -1063,7 +1268,11 @@
       onkeydown={onDividerKey}
     ></div>
 
-    <section class="pane tree-pane" style="flex-basis: {(1 - splitRatio) * 100}%">
+    <section
+      class="pane tree-pane"
+      style="flex-basis: {(1 - splitRatio) * 100}%"
+      onmouseenter={() => (activePane = "tree")}
+    >
       <div class="pane-head">
         <span class="pane-label">Tree</span>
         <span class="pane-meta">{selectedPath || "click: copy path · dbl/ctrl-click: jump"}</span>
@@ -1077,9 +1286,13 @@
           {caretPath}
           search={treeSearch}
           {subtreeCmd}
+          {editCmd}
+          editable={docMode === "json"}
+          fontSize={treeFontSize}
           onselect={onSelectNode}
           onseek={onSeekNode}
           oncontext={onTreeContext}
+          onedit={onTreeEdit}
           autoExpandDepth={treeExpandDepth}
           nonce={treeNonce}
         />
@@ -1090,8 +1303,8 @@
       <div class="search-overlay">
         <SearchBar
           query={searchQuery}
-          count={replaceMode ? textCount : searchResult.matches.length}
-          index={replaceMode ? textIndex : searchIndex}
+          count={searchResult.matches.length}
+          index={searchIndex}
           opts={searchOpts}
           focusSignal={searchFocusNonce}
           replace={replaceOpen}
@@ -1151,6 +1364,12 @@
     {#if selectedPath}
       <button class="stat path" onclick={() => onSelectNode(selectedPath)} title="Copy path">
         {selectedPath}
+      </button>
+    {/if}
+    {#if pendingUpdate}
+      <button class="stat update" onclick={updateNow} title="Install {pendingUpdate.version} and restart now (otherwise it installs when you close)">
+        <span class="pip update"></span>
+        Update {pendingUpdate.version} ready
       </button>
     {/if}
     <span class="stat muted mode">{isTauri ? "desktop" : "preview"}</span>
@@ -1274,6 +1493,10 @@
 
   {#if ctxMenu}
     <ContextMenu x={ctxMenu.x} y={ctxMenu.y} items={ctxItems} onclose={closeCtx} />
+  {/if}
+
+  {#if editorMenu}
+    <ContextMenu x={editorMenu.x} y={editorMenu.y} items={editorMenuItems} onclose={closeEditorMenu} />
   {/if}
 </div>
 
@@ -1604,6 +1827,16 @@
   }
   .pip.warn {
     background: var(--number);
+  }
+  .stat.update {
+    color: var(--accent);
+    cursor: pointer;
+  }
+  .stat.update:hover {
+    text-decoration: underline;
+  }
+  .pip.update {
+    background: var(--accent);
   }
   .sep {
     width: 1px;

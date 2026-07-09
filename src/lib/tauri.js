@@ -3,7 +3,7 @@
 
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-let _dialog, _store, _event, _core, _win;
+let _dialog, _store, _event, _core, _win, _updater, _process;
 
 async function dialog() {
   return (_dialog ??= await import("@tauri-apps/plugin-dialog"));
@@ -23,6 +23,12 @@ async function store() {
   _store = await Store.load("recent.json");
   return _store;
 }
+async function updater() {
+  return (_updater ??= await import("@tauri-apps/plugin-updater"));
+}
+async function process() {
+  return (_process ??= await import("@tauri-apps/plugin-process"));
+}
 
 /** Show the native open dialog, return an absolute path or null. */
 export async function pickOpenPath() {
@@ -32,7 +38,7 @@ export async function pickOpenPath() {
     multiple: false,
     filters: [
       { name: "JSON", extensions: ["json", "jsonc", "json5", "geojson", "map", "webmanifest"] },
-      { name: "JSON Lines", extensions: ["jsonl", "ndjson"] },
+      { name: "JSON Lines", extensions: ["jsonl", "ndjson", "ldjson"] },
       { name: "All files", extensions: ["*"] },
     ],
   });
@@ -75,6 +81,18 @@ export async function copyToClipboard(text) {
     /* clipboard blocked; caller still shows the path */
   }
   return false;
+}
+
+/** Read text from the system clipboard (null if unavailable/blocked). */
+export async function readClipboard() {
+  try {
+    if (navigator?.clipboard?.readText) {
+      return await navigator.clipboard.readText();
+    }
+  } catch {
+    /* clipboard read not permitted */
+  }
+  return null;
 }
 
 // ---- Recent files (persisted via the store plugin) --------------------------
@@ -156,6 +174,77 @@ export async function onOpenWithFile(onFile) {
     if (typeof e.payload === "string" && e.payload) onFile(e.payload);
   });
   return unlisten;
+}
+
+// ---- Auto-update: check GitHub, download in background, install on exit ------
+
+/**
+ * Ask the update endpoint (latest GitHub release) whether a newer version
+ * exists and, if so, start downloading it in the background immediately.
+ *
+ * Resolves to `null` when there's no update, we're not in the desktop app, or
+ * anything goes wrong (offline, missing manifest) — callers can ignore those.
+ * On success, resolves to a handle:
+ *   { version, currentVersion, notes, whenReady(), isReady(), install() }
+ *
+ * @param {(fraction: number) => void} [onProgress] download progress, 0..1
+ */
+export async function checkForUpdate(onProgress) {
+  if (!isTauri) return null;
+  let update;
+  try {
+    const u = await updater();
+    update = await u.check();
+  } catch {
+    return null; // offline, no manifest, signature mismatch, etc.
+  }
+  if (!update) return null;
+
+  let ready = false;
+  let total = 0;
+  let received = 0;
+  // Kick the download off now; the returned promise settles when bytes are in.
+  const downloadPromise = update
+    .download((event) => {
+      if (event.event === "Started") total = event.data.contentLength || 0;
+      else if (event.event === "Progress") {
+        received += event.data.chunkLength || 0;
+        if (total) onProgress?.(Math.min(1, received / total));
+      } else if (event.event === "Finished") onProgress?.(1);
+    })
+    .then(() => {
+      ready = true;
+    })
+    .catch(() => {
+      ready = false;
+    });
+
+  return {
+    version: update.version,
+    currentVersion: update.currentVersion,
+    notes: update.body || "",
+    /** Await the background download; true once the bytes are ready to install. */
+    whenReady: () => downloadPromise.then(() => ready),
+    isReady: () => ready,
+    /**
+     * Install the downloaded update. `relaunch: true` restarts into the new
+     * version; otherwise the app exits (installer finishes in the background).
+     * No-op returning false if the download hasn't finished.
+     */
+    async install({ relaunch = false } = {}) {
+      await downloadPromise;
+      if (!ready) return false;
+      await update.install();
+      try {
+        const p = await process();
+        if (relaunch) await p.relaunch();
+        else await p.exit(0);
+      } catch {
+        /* installer/OS may already be handling the restart */
+      }
+      return true;
+    },
+  };
 }
 
 /**

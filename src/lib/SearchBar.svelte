@@ -86,7 +86,7 @@
       bind:this={inputEl}
       class="field"
       type="text"
-      placeholder={replace ? "Find…" : "Search keys & values…"}
+      placeholder="Search keys & values…"
       spellcheck="false"
       value={query}
       oninput={onInput}
@@ -104,14 +104,10 @@
     <span class="divider"></span>
 
     <div class="toggles">
-      {#if !replace}
-        <button class="tgl" class:on={opts.key} title="Match keys" onclick={() => ontoggle("key")}>Key</button>
-        <button class="tgl" class:on={opts.value} title="Match values" onclick={() => ontoggle("value")}>Value</button>
-      {/if}
+      <button class="tgl" class:on={opts.key} title="Match keys" onclick={() => ontoggle("key")}>Key</button>
+      <button class="tgl" class:on={opts.value} title="Match values" onclick={() => ontoggle("value")}>Value</button>
       <button class="tgl mono" class:on={opts.caseSensitive} title="Case sensitive" onclick={() => ontoggle("caseSensitive")}>Aa</button>
-      {#if !replace}
-        <button class="tgl" class:on={opts.filter} title="Filter the tree to matches (off = dim non-matches)" onclick={() => ontoggle("filter")}>Filter</button>
-      {/if}
+      <button class="tgl" class:on={opts.filter} title="Filter the tree to matches (off = dim non-matches)" onclick={() => ontoggle("filter")}>Filter</button>
     </div>
 
     <button class="ibtn close" title="Close (Esc)" onclick={onclose} aria-label="Close search">✕</button>

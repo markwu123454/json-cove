@@ -1,10 +1,10 @@
 <script>
   import { untrack } from "svelte";
-  import { EditorView, Decoration, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, rectangularSelection, dropCursor } from "@codemirror/view";
+  import { EditorView, Decoration, ViewPlugin, WidgetType, hoverTooltip, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, rectangularSelection, dropCursor } from "@codemirror/view";
   import { EditorState, StateField, StateEffect, Compartment } from "@codemirror/state";
   import { defaultKeymap, history, historyKeymap, indentWithTab, undo, redo } from "@codemirror/commands";
   import { json } from "@codemirror/lang-json";
-  import { bracketMatching, foldGutter, foldKeymap, indentOnInput, indentUnit, syntaxTree } from "@codemirror/language";
+  import { bracketMatching, foldGutter, foldKeymap, foldable, foldEffect, unfoldAll, indentOnInput, indentUnit, syntaxTree } from "@codemirror/language";
   import { lintGutter, linter } from "@codemirror/lint";
   import { highlightSelectionMatches, SearchCursor } from "@codemirror/search";
   import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
@@ -24,6 +24,83 @@
   });
   const hitMark = Decoration.mark({ class: "cm-search-hit" });
   const currentMark = Decoration.mark({ class: "cm-search-hit cm-search-current" });
+
+  // ---- Color swatches: a small chip before any #rgb / #rrggbb literal -------
+  const HEX_RE = /#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/g;
+  class ColorWidget extends WidgetType {
+    constructor(color) {
+      super();
+      this.color = color;
+    }
+    eq(other) {
+      return other.color === this.color;
+    }
+    toDOM() {
+      const s = document.createElement("span");
+      s.className = "cm-color-swatch";
+      s.style.backgroundColor = this.color;
+      return s;
+    }
+    ignoreEvent() {
+      return true;
+    }
+  }
+  function buildColorDecos(view) {
+    const decos = [];
+    for (const { from, to } of view.visibleRanges) {
+      const text = view.state.doc.sliceString(from, to);
+      HEX_RE.lastIndex = 0;
+      let m;
+      while ((m = HEX_RE.exec(text))) {
+        decos.push(
+          Decoration.widget({ widget: new ColorWidget(m[0]), side: -1 }).range(from + m.index)
+        );
+      }
+    }
+    return Decoration.set(decos, true);
+  }
+  const colorSwatches = ViewPlugin.fromClass(
+    class {
+      constructor(view) {
+        this.decorations = buildColorDecos(view);
+      }
+      update(u) {
+        if (u.docChanged || u.viewportChanged) this.decorations = buildColorDecos(u.view);
+      }
+    },
+    { decorations: (v) => v.decorations }
+  );
+
+  // ---- Epoch-timestamp hover: decode plausible unix times to a readable date -
+  function epochToDate(n) {
+    if (!Number.isFinite(n)) return null;
+    let ms;
+    if (n >= 1e8 && n < 1e11) ms = n * 1000; // seconds  (1973 … 5138)
+    else if (n >= 1e11 && n < 1e14) ms = n; // milliseconds
+    else return null;
+    const d = new Date(ms);
+    if (isNaN(d.getTime())) return null;
+    return d.toISOString().replace("T", " ").replace(/\.000Z$/, " UTC");
+  }
+  const epochHover = hoverTooltip((view, pos) => {
+    let node = syntaxTree(view.state).resolveInner(pos, 0);
+    while (node && node.name !== "Number") node = node.parent;
+    if (!node) return null;
+    const raw = view.state.sliceDoc(node.from, node.to);
+    const label = epochToDate(Number(raw));
+    if (!label) return null;
+    return {
+      pos: node.from,
+      end: node.to,
+      above: true,
+      create() {
+        const dom = document.createElement("div");
+        dom.className = "cm-epoch-tooltip";
+        dom.textContent = label;
+        return { dom };
+      },
+    };
+  });
 
   let {
     value = "",
@@ -237,6 +314,8 @@
         closeBrackets(),
         highlightSelectionMatches(),
         searchField,
+        colorSwatches,
+        epochHover,
         json(),
         lintGutter(),
         linter(lintDoc, { delay: 200 }),
@@ -270,7 +349,7 @@
     if (activeMode === "jsonl") return; // per-line records: path is ambiguous
     const pos = viewRef.state.selection.main.head;
     const segments = offsetToSegments(viewRef.state, pos);
-    const key = segments.join(" ");
+    const key = segments.join("\u0000");
     if (key === lastCaretPath) return;
     lastCaretPath = key;
     oncaret(segments);
@@ -345,6 +424,12 @@
         clearSearch,
         replaceCurrent,
         replaceAllText,
+        setValueAtPath,
+        foldToLevel,
+        unfoldAllEditor: () => view && unfoldAll(view),
+        getSelectionText,
+        replaceSelection,
+        selectAll,
       });
     });
     return () => view?.destroy();
@@ -504,6 +589,51 @@
     return node;
   }
 
+  // Replace the value at a JSON path with new raw text (used by tree editing).
+  export function setValueAtPath(segments, insertText) {
+    if (!view) return false;
+    const node = valueNodeAtPath(view.state, segments);
+    if (!node) return false;
+    const from = node.from;
+    const to = Math.min(node.to, view.state.doc.length);
+    view.dispatch({
+      changes: { from, to, insert: insertText },
+      selection: { anchor: from + insertText.length },
+    });
+    return true;
+  }
+
+  // ---- Fold the editor to a given nesting level ----------------------------
+  function foldWalk(node, depth, level, effects, state) {
+    if (!node) return;
+    const container = node.name === "Object" || node.name === "Array";
+    if (container && depth >= level) {
+      const line = state.doc.lineAt(node.from);
+      const range = foldable(state, line.from, line.to);
+      if (range) effects.push(foldEffect.of(range));
+      return; // folded — its children are hidden, no need to recurse
+    }
+    if (node.name === "Object") {
+      let c = node.firstChild;
+      while (c) {
+        if (c.name === "Property") foldWalk(propertyValue(c), depth + 1, level, effects, state);
+        c = c.nextSibling;
+      }
+    } else if (node.name === "Array") {
+      for (const it of arrayItems(node)) foldWalk(it, depth + 1, level, effects, state);
+    }
+  }
+
+  export function foldToLevel(level) {
+    if (!view) return;
+    unfoldAll(view); // start from a fully expanded state
+    const state = view.state;
+    const root = firstValueChild(syntaxTree(state).topNode);
+    const effects = [];
+    foldWalk(root, 0, Math.max(1, level), effects, state);
+    if (effects.length) view.dispatch({ effects });
+  }
+
   // Resolve the PropertyName (key token) node for the last segment of a path.
   function keyNodeAtPath(state, segments) {
     if (!segments.length || typeof segments[segments.length - 1] !== "string") return null;
@@ -580,96 +710,72 @@
     view.dispatch(spec);
   }
 
-  // ---- Literal editor-text search (drives replace mode) --------------------
-  // A plain-text search over the document, independent of the JSON structure —
-  // this is what Replace operates on, so hits map 1:1 to replaceable text.
+  // ---- Replace within the current structural matches -----------------------
+  // Find keeps its full key/value/filter semantics; Replace only rewrites text
+  // inside the ranges the structural search already resolved (searchRanges), so
+  // it never touches unmatched keys/values.
   function textCursor(query, cs, from, to) {
     const norm = cs ? (s) => s : (s) => s.toLowerCase();
     return new SearchCursor(view.state.doc, query, from ?? 0, to ?? view.state.doc.length, norm);
   }
 
-  function scanTextRanges(query, cs) {
-    const out = [];
-    if (!view || !query) return out;
-    const cur = textCursor(query, cs);
-    while (!cur.next().done) out.push({ from: cur.value.from, to: cur.value.to });
-    return out;
-  }
-
-  function paintText(scroll) {
-    paintRanges(textRanges, textCurrent, scroll);
-  }
-
-  // Run a literal search; pick the match at/after the cursor as current.
-  export function findText(query, opts) {
-    if (!view || !query) {
-      clearTextSearch();
-      return { count: 0, index: -1 };
+  function replaceInRange(query, replacement, from, to, cs) {
+    const changes = [];
+    if (!query) return changes;
+    const cur = textCursor(query, cs, from, to);
+    while (!cur.next().done) {
+      changes.push({ from: cur.value.from, to: cur.value.to, insert: replacement });
     }
-    textRanges = scanTextRanges(query, !!opts?.caseSensitive);
-    if (!textRanges.length) {
-      textCurrent = -1;
-      paintText(false);
-      return { count: 0, index: -1 };
-    }
-    const head = view.state.selection.main.from;
-    let idx = textRanges.findIndex((r) => r.to >= head);
-    if (idx < 0) idx = 0;
-    textCurrent = idx;
-    paintText(true);
-    return { count: textRanges.length, index: idx };
+    return changes;
   }
 
-  export function stepText(delta) {
-    if (!view || !textRanges.length) return { count: 0, index: -1 };
-    const n = textRanges.length;
-    textCurrent = ((textCurrent < 0 ? 0 : textCurrent) + delta + n) % n;
-    paintText(true);
-    return { count: n, index: textCurrent };
+  // Replace occurrences of `query` inside the current match's range.
+  export function replaceCurrent(query, replacement, current, opts) {
+    if (!view || !query) return 0;
+    const r = searchRanges[current];
+    if (!r) return 0;
+    const changes = replaceInRange(query, replacement, r.from, r.to, !!opts?.caseSensitive);
+    if (!changes.length) return 0;
+    view.dispatch({ changes });
+    return changes.length;
   }
 
-  // Replace the current match (or the next one after the cursor), then let the
-  // document-change effect re-run findText so highlights + count refresh and
-  // the cursor lands on the following match.
-  export function replaceCurrent(query, replacement, opts) {
-    if (!view || !query) return;
-    const cs = !!opts?.caseSensitive;
-    const sel = view.state.selection.main;
-    const selText = view.state.sliceDoc(sel.from, sel.to);
-    const eq = cs ? selText === query : selText.toLowerCase() === query.toLowerCase();
-    let from, to;
-    if (eq && sel.to > sel.from) {
-      from = sel.from;
-      to = sel.to;
-    } else {
-      let cur = textCursor(query, cs, sel.from);
-      if (cur.next().done) {
-        cur = textCursor(query, cs, 0); // wrap to the top
-        if (cur.next().done) return;
-      }
-      from = cur.value.from;
-      to = cur.value.to;
-    }
-    view.dispatch({
-      changes: { from, to, insert: replacement },
-      selection: { anchor: from + replacement.length },
-    });
-  }
-
+  // Replace occurrences of `query` inside every current match, in one edit.
   export function replaceAllText(query, replacement, opts) {
     if (!view || !query) return 0;
-    const ranges = scanTextRanges(query, !!opts?.caseSensitive);
-    if (!ranges.length) return 0;
-    view.dispatch({ changes: ranges.map((r) => ({ from: r.from, to: r.to, insert: replacement })) });
-    textRanges = [];
-    textCurrent = -1;
-    return ranges.length;
+    const cs = !!opts?.caseSensitive;
+    let all = [];
+    for (const r of searchRanges) {
+      if (!r) continue;
+      all = all.concat(replaceInRange(query, replacement, r.from, r.to, cs));
+    }
+    if (!all.length) return 0;
+    all.sort((a, b) => a.from - b.from);
+    view.dispatch({ changes: all });
+    return all.length;
   }
 
-  export function clearTextSearch() {
-    textRanges = [];
-    textCurrent = -1;
-    if (view) view.dispatch({ effects: setSearchEffect.of(Decoration.none) });
+  // ---- Selection helpers (for the editor's custom context menu) -------------
+  export function getSelectionText() {
+    if (!view) return "";
+    const s = view.state.selection.main;
+    return view.state.sliceDoc(s.from, s.to);
+  }
+
+  export function replaceSelection(insert) {
+    if (!view) return;
+    const s = view.state.selection.main;
+    view.dispatch({
+      changes: { from: s.from, to: s.to, insert },
+      selection: { anchor: s.from + insert.length },
+    });
+    view.focus();
+  }
+
+  export function selectAll() {
+    if (!view) return;
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+    view.focus();
   }
 </script>
 
@@ -683,5 +789,21 @@
   }
   .editor-host :global(.cm-editor) {
     height: 100%;
+  }
+  .editor-host :global(.cm-color-swatch) {
+    display: inline-block;
+    width: 0.8em;
+    height: 0.8em;
+    margin-right: 0.35em;
+    border: 1px solid rgba(128, 128, 128, 0.5);
+    border-radius: 2px;
+    vertical-align: baseline;
+    box-sizing: border-box;
+  }
+  .editor-host :global(.cm-epoch-tooltip) {
+    padding: 3px 7px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text);
   }
 </style>

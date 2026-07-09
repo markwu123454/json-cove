@@ -14,19 +14,25 @@
     search = null, // { active, filter, query, opts, matchPaths, ancestorPaths, currentPath }
     insideMatch = false, // true when an ancestor node itself matched
     subtreeCmd = null, // { path, open, n } — expand/collapse a subtree
+    editCmd = null, // { path, n } — request to start editing a specific node
+    editable = false, // inline value editing allowed (JSON mode)
     onselect = () => {},
     onseek = () => {},
     oncontext = () => {},
+    onedit = () => {},
   } = $props();
 
   // svelte-ignore state_referenced_locally
   let open = $state(depth < autoExpandDepth);
+  let editing = $state(false);
+  let draft = $state("");
+  let inputEl = $state(null);
   const container = $derived(isContainer(value));
+  const canEdit = $derived(editable && !isContainer(value) && segments.length > 0);
   const type = $derived(valueType(value));
   const count = $derived(childCount(value));
   const path = $derived(pathToString(segments));
   const selected = $derived(selectedPath === path);
-  const isCaret = $derived(caretPath !== "" && caretPath === path);
 
   // ---- Search state --------------------------------------------------------
   const sActive = $derived(!!search?.active);
@@ -43,6 +49,16 @@
   );
   // While searching, force-reveal the route to every hit.
   const displayOpen = $derived(sActive ? (isAncestor || isMatch || insideMatch || open) : open);
+
+  // Editor→tree caret sync. The caret path may point into a collapsed subtree
+  // whose exact node isn't rendered — in that case the nearest *visible*
+  // ancestor (this collapsed container) stands in for it. So a row is the caret
+  // target when it IS the caret node, or it's a collapsed container holding it.
+  const caretUnder = $derived(caretPath !== "" && isUnderPath(caretPath, path));
+  const isCaretTarget = $derived(
+    caretPath !== "" &&
+      (caretPath === path || (container && !displayOpen && caretUnder))
+  );
 
   const showKeyHighlight = $derived(
     sActive && search.opts.key && typeof keyLabel === "string"
@@ -77,7 +93,7 @@
   // Scroll the current search hit / caret-synced node into view.
   let rowEl = $state(null);
   $effect(() => {
-    if ((isCurrent || isCaret) && rowEl) {
+    if ((isCurrent || isCaretTarget) && rowEl) {
       rowEl.scrollIntoView({ block: "nearest" });
     }
   });
@@ -94,6 +110,36 @@
     if (container) open = !open;
   }
 
+  // ---- Inline value editing ------------------------------------------------
+  // Respond to an "Edit value" request aimed at this node (from the menu).
+  $effect(() => {
+    const cmd = editCmd;
+    if (!cmd) return;
+    const p = untrack(() => path);
+    if (cmd.path === p && untrack(() => canEdit)) untrack(() => startEdit());
+  });
+
+  function startEdit() {
+    if (!canEdit) return;
+    // Strings edit as their raw content; scalars edit as their literal token.
+    draft = typeof value === "string" ? value : previewValue(value);
+    editing = true;
+  }
+  function commitEdit() {
+    if (!editing) return;
+    editing = false;
+    onedit(segments, value, draft);
+  }
+  function cancelEdit() {
+    editing = false;
+  }
+  $effect(() => {
+    if (editing && inputEl) {
+      inputEl.focus();
+      inputEl.select();
+    }
+  });
+
   function onRowClick(e) {
     // Ctrl/Cmd-click seeks the editor to this value; a plain click copies path.
     if (e.ctrlKey || e.metaKey) {
@@ -106,7 +152,20 @@
 
   function onRowDblClick(e) {
     e.preventDefault();
-    onseek(path, segments, value);
+    // Double-click edits an editable leaf; otherwise it seeks the editor.
+    if (canEdit) startEdit();
+    else onseek(path, segments, value);
+  }
+
+  function onEditKeydown(e) {
+    e.stopPropagation(); // don't let tree nav / fold shortcuts fire while editing
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitEdit();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelEdit();
+    }
   }
 
   function onContextMenu(e) {
@@ -139,7 +198,7 @@
       class="row"
       class:selected
       class:current={isCurrent}
-      class:caret={isCaret && !selected && !isCurrent}
+      class:caret={isCaretTarget && !isCurrent}
       class:dimmed
       style="padding-left: {depth * 14 + 6}px"
       role="treeitem"
@@ -150,7 +209,7 @@
       ondblclick={onRowDblClick}
       oncontextmenu={onContextMenu}
       onkeydown={onKeydown}
-      title={`${path}\nClick: copy path · Double-click or Ctrl-click: jump · Right-click: more`}
+      title={`${path}\nClick: copy path · ${canEdit ? "Double-click: edit" : "Double-click: jump"} · Ctrl-click: jump · Right-click: more`}
     >
       <span class="twist" class:open={displayOpen} class:leaf={!container} onclick={toggle} role="presentation">
         {#if container}▸{/if}
@@ -170,6 +229,17 @@
         {#if !displayOpen}
           <span class="count">{count}</span><span class="bracket">{type === "array" ? "]" : "}"}</span>
         {/if}
+      {:else if editing}
+        <input
+          class="edit {type}"
+          bind:this={inputEl}
+          bind:value={draft}
+          spellcheck="false"
+          onkeydown={onEditKeydown}
+          onblur={commitEdit}
+          onclick={(e) => e.stopPropagation()}
+          ondblclick={(e) => e.stopPropagation()}
+        />
       {:else}
         <span class="value {type}">
           {#if valueParts}{#each valueParts as p}{#if p.hit}<mark>{p.text}</mark>{:else}{p.text}{/if}{/each}{:else}{previewValue(value)}{/if}
@@ -191,9 +261,12 @@
             {search}
             insideMatch={childInside}
             {subtreeCmd}
+            {editCmd}
+            {editable}
             {onselect}
             {onseek}
             {oncontext}
+            {onedit}
           />
         {/each}
         <div class="closing" style="padding-left: {depth * 14 + 6}px">
@@ -207,7 +280,7 @@
 <style>
   .node {
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: inherit; /* inherits the tree container's (zoomable) size */
     line-height: 1.6;
   }
   .row {
@@ -229,6 +302,11 @@
   .row.caret {
     background: var(--bg-elevated);
     box-shadow: inset 2px 0 0 var(--accent);
+  }
+  /* When the caret target is also the click-selected row, keep the selected
+     tint but still show the blue caret bracket. */
+  .row.selected.caret {
+    background: var(--accent-soft);
   }
   .row.current {
     background: var(--accent-soft);
@@ -305,5 +383,25 @@
   .value.null {
     color: var(--null);
     font-style: italic;
+  }
+  .edit {
+    font-family: var(--font-mono);
+    font-size: inherit;
+    padding: 0 3px;
+    min-width: 60px;
+    background: var(--bg-elevated);
+    color: var(--text);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    outline: none;
+  }
+  .edit.string {
+    color: var(--string);
+  }
+  .edit.number {
+    color: var(--number);
+  }
+  .edit.boolean {
+    color: var(--boolean);
   }
 </style>

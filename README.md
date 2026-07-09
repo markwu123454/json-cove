@@ -36,8 +36,8 @@ The build isn't code-signed, so Windows SmartScreen may warn on first run —
 click **More info → Run anyway**. The app is a few MB and needs the WebView2
 runtime, which ships with current Windows.
 
-After installing you can double-click any `.json` / `.jsonl` file, or use
-**Open with → JSON Cove**.
+After installing you can double-click any `.json`, `.jsonl`, `.ndjson`, or
+`.ldjson` file, or use **Open with → JSON Cove**.
 
 ## Features
 
@@ -46,9 +46,9 @@ After installing you can double-click any `.json` / `.jsonl` file, or use
 - **Open by drag-and-drop or double-click** — drop a file on the window, use the
   File menu, or set JSON Cove as the default app and double-click.
 - **Auto-format on load** — valid JSON is pretty-printed the moment it opens.
-- **JSON Lines (JSONL / NDJSON)** — `.jsonl` / `.ndjson` files (or any file whose
-  every line is a JSON record) open in JSONL mode: each record is validated on
-  its own line and the tree shows them as an array.
+- **JSON Lines (JSONL / NDJSON / LDJSON)** — `.jsonl` / `.ndjson` / `.ldjson` files
+  (or any file whose every line is a JSON record) open in JSONL mode: each record is
+  validated on its own line and the tree shows them as an array.
 - **Live validation, all errors at once** — every syntax error is underlined and
   marked in the gutter (not just the first); the status bar shows the count and
   the first error's line, and clicking it jumps there.
@@ -60,11 +60,31 @@ After installing you can double-click any `.json` / `.jsonl` file, or use
   **Value** / **case-sensitive** matching, step with `Enter` / `Shift+Enter`, or
   switch **Filter** off to dim non-matches instead of hiding them. The app
   captures `Ctrl+F` so the webview's own find never appears.
+- **Find & Replace (`Ctrl+R`)** — press `Ctrl+R` to unfold a replace row beneath
+  the same search bar (JetBrains-style — it never opens a second popup). The find
+  row keeps all its toggles, so replace is **scoped to the matches**: with **Value**
+  on it only rewrites values, with **Key** on only keys. **Replace** (or `Enter`)
+  swaps the current match and advances; **Replace all** (or `Shift+Enter`) does the
+  lot.
+- **Inline tree editing** — double-click a leaf in the tree to edit its value in
+  place (type-aware for strings, numbers, booleans, null); it writes straight back
+  into the editor and is fully undoable. Also on the right-click menu as **Edit
+  value**. (JSON mode.)
 - **Right-click a tree node** — a Chrome-style menu to copy the **value** (raw),
   **value as JSON**, **key**, **`"key": value`**, **path**, or **path in bracket
-  notation**, jump to the value, or expand/collapse the whole subtree.
+  notation**; **Copy as CSV** for an array of objects; jump to the value;
+  **Save subtree as…** to a new file; **Parse embedded JSON** to inline a string
+  that is itself JSON (and **Escape as JSON string** for the reverse); or
+  expand/collapse the whole subtree.
+- **Keyboard navigation in the tree** — `↑` / `↓` (and `Home` / `End`) move between
+  rows, `←` / `→` fold and unfold, `Enter` jumps the editor to the value.
+- **Color swatches & timestamp hints** — any `#rgb` / `#rrggbb` in the editor gets a
+  live color chip in front of it, and hovering a number that looks like a Unix epoch
+  (seconds or milliseconds) shows the decoded UTC date.
 - **Editor ↔ tree sync** — click a tree node to jump the editor there, and moving
-  the editor cursor highlights the matching node back in the tree.
+  the editor cursor highlights the matching node back in the tree. If the cursor
+  lands inside a collapsed subtree, the nearest visible ancestor is highlighted
+  instead, so the caret marker is never lost.
 - **Change tracking** — edited lines get a git-style bar in the gutter (green =
   added, blue = modified, red = deleted) mirrored on the scrollbar, diffed
   against the last saved version and cleared on save.
@@ -73,11 +93,19 @@ After installing you can double-click any `.json` / `.jsonl` file, or use
 - **Jump to value** — double-click (or Ctrl-click) a tree node to move the editor
   cursor to that value and select it.
 - **Menu bar** — a classic File / Edit / Format / View / Help menu with recent
-  files, undo/redo, find, go-to-line, sort-keys, copy-as-minified/formatted,
-  word-wrap, zoom, and expand/collapse-all.
+  files, undo/redo, find/replace, go-to-line, sort-keys, JSON⇄JSONL conversion,
+  copy-as-minified/formatted, word-wrap, zoom, and expand/collapse (all or to a
+  level).
 - **Sort keys** — recursively reorder object keys A→Z (works in JSONL too).
-- **Word wrap + zoom** — toggle soft-wrapping and change the editor font size
-  (`Ctrl +` / `-` / `0`); both persist between launches.
+- **JSON ⇄ JSONL** — convert a top-level JSON array to JSON Lines (one record per
+  line) and back again in one click.
+- **Expand / Collapse to level** — show exactly 1, 2, or 3 levels of nesting, in
+  both the tree and the editor's folds.
+- **Word wrap + zoom** — toggle soft-wrapping and zoom with `Ctrl +` / `-` / `0`.
+  Zoom targets whichever pane the pointer is over, so you can size the **editor**
+  and the **tree** independently; both sizes (and wrap) persist between launches.
+- **Editor right-click menu** — a Cut / Copy / Paste / Select All / Format / Minify
+  menu replaces the webview's default (useless) context menu.
 - **Node stats & record count** — selecting a container shows its child count and
   depth in the status bar; JSONL files show the record count.
 - **External-change detection** — if the open file is changed by another program,
@@ -110,14 +138,18 @@ deliberate and is what keeps the codebase small and startup near-instant.
 | Format                 | `Ctrl+Shift+F`            |
 | Minify                 | `Ctrl+Shift+M`            |
 | Search (tree + editor) | `Ctrl+F`                  |
+| Replace                | `Ctrl+R`                  |
 | Next / previous match  | `Enter` / `Shift+Enter`   |
+| Replace / replace all  | `Enter` / `Shift+Enter` (in the replace field) |
 | Go to line             | `Ctrl+G`                  |
 | Zoom in / out / reset  | `Ctrl+ +` / `-` / `0`     |
 | Undo / Redo            | `Ctrl+Z` / `Ctrl+Y`       |
 
-In the tree: **click** a node to copy its path, **double-click** or
-**Ctrl-click** to jump the editor cursor to that value, and **right-click** for
-copy/jump/expand actions.
+In the tree: **click** a node to copy its path, **double-click a leaf** to edit
+its value in place (**double-click a container** or **Ctrl-click** jumps the
+editor cursor to that value instead), **arrow keys** to navigate (`↑` / `↓` move,
+`←` / `→` fold, `Enter` jumps), and **right-click** for copy / edit / convert /
+save / expand actions.
 
 ## Stack
 
