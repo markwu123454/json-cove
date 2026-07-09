@@ -39,6 +39,12 @@
     "targets": "all",
     "category": "DeveloperTool",
     "createUpdaterArtifacts": true,
+    "resources": ["fileicons/*.ico"],
+    "windows": {
+      "nsis": {
+        "installerHooks": "./installer-hooks.nsh"
+      }
+    },
     "shortDescription": "A tiny, fast JSON viewer and editor",
     "icon": [
       "icons/32x32.png",
