@@ -7,12 +7,16 @@
 [![Release](https://img.shields.io/github/v/release/markwu123454/json-cove?sort=semver)](https://github.com/markwu123454/json-cove/releases)
 [![Downloads](https://img.shields.io/github/downloads/markwu123454/json-cove/total)](https://github.com/markwu123454/json-cove/releases)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows-0a7bbb)](https://github.com/markwu123454/json-cove/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0a7bbb)](https://github.com/markwu123454/json-cove/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
 
-Opens in under a second, shows JSON in a clean dual view — a formatted editor on
-one side, a collapsible tree on the other — and lets you read, tweak a value,
+Opens in under a second, shows JSON in a clean dual view, with a formatted editor on
+one side, a collapsible tree on the other, and lets you read, tweak a value,
 and save without friction.
+
+<br>
+
+<img src="docs/screenshot.png" width="900" alt="JSON Cove open on a self-describing demo.json: the editor pane on the left and the collapsible tree on the right, showing color swatches on hex values, git-style change-tracking bars in the gutter, a duplicate-key warning underlined on a repeated themeColor key, and a status bar reading 'Valid JSON, 1 warning, Duplicate key'.">
 
 </div>
 
@@ -24,17 +28,31 @@ dumps.
 
 ## Download & install
 
-Grab the latest installer from the
+Grab the latest build for your OS from the
 [**Releases**](https://github.com/markwu123454/json-cove/releases) page:
 
-| File | What it is |
-| --- | --- |
-| `JSON Cove_x.y.z_x64-setup.exe` | Windows installer (NSIS) — recommended |
-| `JSON Cove_x.y.z_x64_en-US.msi` | Windows installer (MSI) — for managed/enterprise setups |
+| Platform    | File                             | What it is                                                      |
+|-------------|----------------------------------|-----------------------------------------------------------------|
+| **Windows** | `JSON Cove_x.y.z_x64-setup.exe`  | NSIS installer — **recommended**                                |
+| **Windows** | `JSON Cove_x.y.z_x64_en-US.msi`  | MSI installer — for managed / enterprise deployment             |
+| **macOS**   | `JSON Cove_x.y.z_universal.dmg`  | Disk image, universal (Intel + Apple Silicon) — **recommended** |
+| **macOS**   | `JSON Cove_universal.app.tar.gz` | `.app` bundle tarball (also used by the auto-updater)           |
+| **Linux**   | `JSON Cove_x.y.z_amd64.AppImage` | Portable — runs on most distros, no install — **recommended**   |
+| **Linux**   | `JSON Cove_x.y.z_amd64.deb`      | Debian / Ubuntu package                                         |
+| **Linux**   | `JSON Cove-x.y.z-1.x86_64.rpm`   | Fedora / RHEL / openSUSE package                                |
 
-The build isn't code-signed, so Windows SmartScreen may warn on first run —
-click **More info → Run anyway**. The app is a few MB and needs the WebView2
-runtime, which ships with current Windows.
+The `.sig` files and `latest.json` alongside them are for the built-in
+auto-updater, you don't need to download those.
+
+The app isn't code-signed on any platform, so each OS shows a first-run warning:
+
+- **Windows** — SmartScreen may warn; click **More info → Run anyway**. Needs the
+  WebView2 runtime, which ships with current Windows.
+- **macOS** — Gatekeeper blocks unsigned apps: **right-click the app → Open** the
+  first time (or run `xattr -dr com.apple.quarantine "/Applications/JSON Cove.app"`).
+- **Linux** — for the AppImage, `chmod +x JSON*.AppImage` then run it; install the
+  `.deb` with `sudo apt install ./JSON*.deb` or the `.rpm` with
+  `sudo dnf install ./JSON*.rpm`.
 
 After installing you can double-click any `.json`, `.jsonl`, `.ndjson`, or
 `.ldjson` file, or use **Open with → JSON Cove**.
@@ -129,21 +147,21 @@ deliberate and is what keeps the codebase small and startup near-instant.
 
 ## Keyboard shortcuts
 
-| Action                 | Shortcut                  |
-| ---------------------- | ------------------------- |
-| New                    | `Ctrl+N`                  |
-| Open                   | `Ctrl+O`                  |
-| Save                   | `Ctrl+S`                  |
-| Save As                | `Ctrl+Shift+S`            |
-| Format                 | `Ctrl+Shift+F`            |
-| Minify                 | `Ctrl+Shift+M`            |
-| Search (tree + editor) | `Ctrl+F`                  |
-| Replace                | `Ctrl+R`                  |
-| Next / previous match  | `Enter` / `Shift+Enter`   |
+| Action                 | Shortcut                                       |
+|------------------------|------------------------------------------------|
+| New                    | `Ctrl+N`                                       |
+| Open                   | `Ctrl+O`                                       |
+| Save                   | `Ctrl+S`                                       |
+| Save As                | `Ctrl+Shift+S`                                 |
+| Format                 | `Ctrl+Shift+F`                                 |
+| Minify                 | `Ctrl+Shift+M`                                 |
+| Search (tree + editor) | `Ctrl+F`                                       |
+| Replace                | `Ctrl+R`                                       |
+| Next / previous match  | `Enter` / `Shift+Enter`                        |
 | Replace / replace all  | `Enter` / `Shift+Enter` (in the replace field) |
-| Go to line             | `Ctrl+G`                  |
-| Zoom in / out / reset  | `Ctrl+ +` / `-` / `0`     |
-| Undo / Redo            | `Ctrl+Z` / `Ctrl+Y`       |
+| Go to line             | `Ctrl+G`                                       |
+| Zoom in / out / reset  | `Ctrl+ +` / `-` / `0`                          |
+| Undo / Redo            | `Ctrl+Z` / `Ctrl+Y`                            |
 
 In the tree: **click** a node to copy its path, **double-click a leaf** to edit
 its value in place (**double-click a container** or **Ctrl-click** jumps the
