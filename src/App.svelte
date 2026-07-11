@@ -28,7 +28,7 @@
 
   const SAMPLE = JSON.stringify(
     {
-      name: "json-cove",
+      name: "femtojson",
       version: "0.1.0",
       description: "A tiny, fast desktop JSON viewer and editor.",
       features: ["dual view", "tree navigation", "format / minify", "dark mode", "jsonl"],
@@ -148,7 +148,7 @@
 
   // Reflect the document + dirty state in the native window title.
   $effect(() => {
-    setWindowTitle(`${dirty ? "● " : ""}${title} — JSON Cove`);
+    setWindowTitle(`${dirty ? "● " : ""}${title} — FemtoJSON`);
   });
 
   // Menu-bar definition. Derived so recent files / disabled states stay live.
@@ -238,7 +238,7 @@
       label: "Help",
       items: [
         { label: "Keyboard Shortcuts…", action: () => (showShortcuts = true) },
-        { label: "About JSON Cove", action: showAbout },
+        { label: "About FemtoJSON", action: showAbout },
       ],
     },
   ]);
@@ -792,7 +792,7 @@
     if (selectedPath) onSelectNode(selectedPath);
   }
   function showAbout() {
-    flash("JSON Cove 0.1.0 — a tiny, fast JSON editor");
+    flash("FemtoJSON 0.1.0 — a tiny, fast JSON editor");
   }
 
   // ---- Unified search -------------------------------------------------------

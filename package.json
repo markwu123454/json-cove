@@ -1,5 +1,5 @@
 {
-  "name": "json-cove",
+  "name": "femtojson",
   "version": "0.1.0",
   "description": "A tiny, fast desktop JSON viewer and editor for small files.",
   "type": "module",
