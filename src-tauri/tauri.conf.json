@@ -29,7 +29,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/markwu123454/json-cove/releases/latest/download/latest.json"
+        "https://github.com/markwu123454/femtojson/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU4OTkwRjA0NEE0REYxM0UKUldRKzhVMUtCQStaV0FvMHh2YjlPNUJRSnJnL0h0VGx4WVlQazZJZzVUNTdSOGFMZkJwUjNGaG4K"
     }

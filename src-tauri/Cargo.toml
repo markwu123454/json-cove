@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "A tiny, fast desktop JSON viewer and editor"
 authors = ["Mark Wu"]
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/markwu123454/json-cove"
+repository = "https://github.com/markwu123454/femtojson"
 edition = "2021"
 rust-version = "1.77.2"
 

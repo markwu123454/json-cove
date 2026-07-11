@@ -4,10 +4,10 @@
 
 **A tiny, fast desktop JSON & JSONL viewer and editor for small files.**
 
-[![Release](https://img.shields.io/github/v/release/markwu123454/json-cove?sort=semver)](https://github.com/markwu123454/json-cove/releases)
-[![Downloads](https://img.shields.io/github/downloads/markwu123454/json-cove/total)](https://github.com/markwu123454/json-cove/releases)
+[![Release](https://img.shields.io/github/v/release/markwu123454/femtojson?sort=semver)](https://github.com/markwu123454/femtojson/releases)
+[![Downloads](https://img.shields.io/github/downloads/markwu123454/femtojson/total)](https://github.com/markwu123454/femtojson/releases)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0a7bbb)](https://github.com/markwu123454/json-cove/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0a7bbb)](https://github.com/markwu123454/femtojson/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
 
 Opens in under a second, shows JSON in a clean dual view, with a formatted editor on
@@ -29,7 +29,7 @@ dumps.
 ## Download & install
 
 Grab the latest build for your OS from the
-[**Releases**](https://github.com/markwu123454/json-cove/releases) page:
+[**Releases**](https://github.com/markwu123454/femtojson/releases) page:
 
 | Platform    | File                             | What it is                                                      |
 |-------------|----------------------------------|-----------------------------------------------------------------|
@@ -189,8 +189,8 @@ means the Visual Studio C++ Build Tools and the WebView2 runtime (bundled with
 current Windows).
 
 ```bash
-git clone https://github.com/markwu123454/json-cove
-cd json-cove
+git clone https://github.com/markwu123454/femtojson
+cd femtojson
 npm install          # install frontend dependencies
 
 npm run app:dev      # run the desktop app with hot reload
