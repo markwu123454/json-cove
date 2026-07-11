@@ -1,13 +1,13 @@
 <div align="center">
 
-# JSON Cove
+# FemtoJSON
 
 **A tiny, fast desktop JSON & JSONL viewer and editor for small files.**
 
-[![Release](https://img.shields.io/github/v/release/markwu123454/json-cove?sort=semver)](https://github.com/markwu123454/json-cove/releases)
-[![Downloads](https://img.shields.io/github/downloads/markwu123454/json-cove/total)](https://github.com/markwu123454/json-cove/releases)
+[![Release](https://img.shields.io/github/v/release/markwu123454/femtojson?sort=semver)](https://github.com/markwu123454/femtojson/releases)
+[![Downloads](https://img.shields.io/github/downloads/markwu123454/femtojson/total)](https://github.com/markwu123454/femtojson/releases)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0a7bbb)](https://github.com/markwu123454/json-cove/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0a7bbb)](https://github.com/markwu123454/femtojson/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
 
 Opens in under a second, shows JSON in a clean dual view, with a formatted editor on
@@ -16,7 +16,7 @@ and save without friction.
 
 <br>
 
-<img src="docs/screenshot.png" width="900" alt="JSON Cove open on a self-describing demo.json: the editor pane on the left and the collapsible tree on the right, showing color swatches on hex values, git-style change-tracking bars in the gutter, a duplicate-key warning underlined on a repeated themeColor key, and a status bar reading 'Valid JSON, 1 warning, Duplicate key'.">
+<img src="docs/screenshot.png" width="900" alt="FemtoJSON open on a self-describing demo.json: the editor pane on the left and the collapsible tree on the right, showing color swatches on hex values, git-style change-tracking bars in the gutter, a duplicate-key warning underlined on a repeated themeColor key, and a status bar reading 'Valid JSON, 1 warning, Duplicate key'.">
 
 </div>
 
@@ -29,17 +29,17 @@ dumps.
 ## Download & install
 
 Grab the latest build for your OS from the
-[**Releases**](https://github.com/markwu123454/json-cove/releases) page:
+[**Releases**](https://github.com/markwu123454/femtojson/releases) page:
 
 | Platform    | File                             | What it is                                                      |
 |-------------|----------------------------------|-----------------------------------------------------------------|
-| **Windows** | `JSON Cove_x.y.z_x64-setup.exe`  | NSIS installer — **recommended**                                |
-| **Windows** | `JSON Cove_x.y.z_x64_en-US.msi`  | MSI installer — for managed / enterprise deployment             |
-| **macOS**   | `JSON Cove_x.y.z_universal.dmg`  | Disk image, universal (Intel + Apple Silicon) — **recommended** |
-| **macOS**   | `JSON Cove_universal.app.tar.gz` | `.app` bundle tarball (also used by the auto-updater)           |
-| **Linux**   | `JSON Cove_x.y.z_amd64.AppImage` | Portable — runs on most distros, no install — **recommended**   |
-| **Linux**   | `JSON Cove_x.y.z_amd64.deb`      | Debian / Ubuntu package                                         |
-| **Linux**   | `JSON Cove-x.y.z-1.x86_64.rpm`   | Fedora / RHEL / openSUSE package                                |
+| **Windows** | `FemtoJSON_x.y.z_x64-setup.exe`  | NSIS installer — **recommended**                                |
+| **Windows** | `FemtoJSON_x.y.z_x64_en-US.msi`  | MSI installer — for managed / enterprise deployment             |
+| **macOS**   | `FemtoJSON_x.y.z_universal.dmg`  | Disk image, universal (Intel + Apple Silicon) — **recommended** |
+| **macOS**   | `FemtoJSON_universal.app.tar.gz` | `.app` bundle tarball (also used by the auto-updater)           |
+| **Linux**   | `FemtoJSON_x.y.z_amd64.AppImage` | Portable — runs on most distros, no install — **recommended**   |
+| **Linux**   | `FemtoJSON_x.y.z_amd64.deb`      | Debian / Ubuntu package                                         |
+| **Linux**   | `FemtoJSON-x.y.z-1.x86_64.rpm`   | Fedora / RHEL / openSUSE package                                |
 
 The `.sig` files and `latest.json` alongside them are for the built-in
 auto-updater, you don't need to download those.
@@ -49,20 +49,20 @@ The app isn't code-signed on any platform, so each OS shows a first-run warning:
 - **Windows** — SmartScreen may warn; click **More info → Run anyway**. Needs the
   WebView2 runtime, which ships with current Windows.
 - **macOS** — Gatekeeper blocks unsigned apps: **right-click the app → Open** the
-  first time (or run `xattr -dr com.apple.quarantine "/Applications/JSON Cove.app"`).
-- **Linux** — for the AppImage, `chmod +x JSON*.AppImage` then run it; install the
-  `.deb` with `sudo apt install ./JSON*.deb` or the `.rpm` with
-  `sudo dnf install ./JSON*.rpm`.
+  first time (or run `xattr -dr com.apple.quarantine "/Applications/FemtoJSON.app"`).
+- **Linux** — for the AppImage, `chmod +x FemtoJSON*.AppImage` then run it; install the
+  `.deb` with `sudo apt install ./FemtoJSON*.deb` or the `.rpm` with
+  `sudo dnf install ./FemtoJSON*.rpm`.
 
 After installing you can double-click any `.json`, `.jsonl`, `.ndjson`, or
-`.ldjson` file, or use **Open with → JSON Cove**.
+`.ldjson` file, or use **Open with → FemtoJSON**.
 
 ## Features
 
 - **Dual view** — a CodeMirror 6 editor with JSON highlighting, folding, bracket
   matching, and auto-closing brackets, beside a lightweight collapsible tree.
 - **Open by drag-and-drop or double-click** — drop a file on the window, use the
-  File menu, or set JSON Cove as the default app and double-click.
+  File menu, or set FemtoJSON as the default app and double-click.
 - **Auto-format on load** — valid JSON is pretty-printed the moment it opens.
 - **JSON Lines (JSONL / NDJSON / LDJSON)** — `.jsonl` / `.ndjson` / `.ldjson` files
   (or any file whose every line is a JSON record) open in JSONL mode: each record is
@@ -127,7 +127,7 @@ After installing you can double-click any `.json`, `.jsonl`, `.ndjson`, or
 - **Node stats & record count** — selecting a container shows its child count and
   depth in the status bar; JSONL files show the record count.
 - **External-change detection** — if the open file is changed by another program,
-  JSON Cove offers to reload it (desktop app only).
+  FemtoJSON offers to reload it (desktop app only).
 - **Save protection** — closing with unsaved changes prompts Save / Don't Save /
   Cancel; saving malformed JSON asks for confirmation first (a soft warning,
   never a hard block).
@@ -189,8 +189,8 @@ means the Visual Studio C++ Build Tools and the WebView2 runtime (bundled with
 current Windows).
 
 ```bash
-git clone https://github.com/markwu123454/json-cove
-cd json-cove
+git clone https://github.com/markwu123454/femtojson
+cd femtojson
 npm install          # install frontend dependencies
 
 npm run app:dev      # run the desktop app with hot reload

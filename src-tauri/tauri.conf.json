@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "JSON Cove",
+  "productName": "FemtoJSON",
   "version": "0.1.0",
-  "identifier": "com.markwu.jsoncove",
+  "identifier": "com.markwu.femtojson",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "JSON Cove",
+        "title": "FemtoJSON",
         "width": 1000,
         "height": 680,
         "minWidth": 560,
@@ -29,7 +29,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/markwu123454/json-cove/releases/latest/download/latest.json"
+        "https://github.com/markwu123454/femtojson/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU4OTkwRjA0NEE0REYxM0UKUldRKzhVMUtCQStaV0FvMHh2YjlPNUJRSnJnL0h0VGx4WVlQazZJZzVUNTdSOGFMZkJwUjNGaG4K"
     }

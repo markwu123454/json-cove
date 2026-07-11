@@ -1,16 +1,16 @@
 [package]
-name = "json-cove"
+name = "femtojson"
 version = "0.1.0"
 description = "A tiny, fast desktop JSON viewer and editor"
 authors = ["Mark Wu"]
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/markwu123454/json-cove"
+repository = "https://github.com/markwu123454/femtojson"
 edition = "2021"
 rust-version = "1.77.2"
 
 # The library that the desktop and (potential) mobile binaries share.
 [lib]
-name = "json_cove_lib"
+name = "femtojson_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
